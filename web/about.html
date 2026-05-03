@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Banana Sorting — About</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+
+  <style>
+    /* ── About-specific enhancements ─────────────────── */
+
+    /* Intro banner at top of about page */
+    .about-hero {
+      width: 100%;
+      background: var(--sb-bg);
+      border-radius: 18px;
+      padding: clamp(28px, 5vw, 44px);
+      margin-bottom: 40px;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .about-hero::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 60% 80% at 90% 50%, rgba(255,255,255,0.1) 0%, transparent 70%),
+        url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='rgba(255,255,255,0.07)' stroke-width='0.5'%3E%3Cpath d='M0 20h40M20 0v40'/%3E%3C/g%3E%3C/svg%3E");
+      pointer-events: none;
+    }
+
+    .about-hero-icon {
+      width: 60px; height: 60px;
+      background: rgba(255,255,255,0.18);
+      border: 1px solid rgba(255,255,255,0.35);
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 2rem;
+      flex-shrink: 0;
+      position: relative;
+    }
+
+    .about-hero-text h1 {
+      color: #ffffff;
+      font-size: clamp(20px, 4vw, 30px);
+      margin-bottom: 6px;
+      position: relative;
+    }
+
+    .about-hero-text p {
+      color: rgba(255,255,255,0.75);
+      font-size: clamp(13px, 2vw, 14.5px);
+      position: relative;
+      max-width: 600px;
+    }
+
+    /* Numbered step cards */
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .step-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 18px 16px;
+      box-shadow: var(--shadow-sm);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: box-shadow 0.2s, transform 0.2s;
+    }
+
+    .step-card:hover {
+      box-shadow: var(--shadow);
+      transform: translateY(-2px);
+    }
+
+    .step-num {
+      font-family: 'Syne', sans-serif;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: var(--accent);
+      line-height: 1;
+      letter-spacing: -1px;
+    }
+
+    .step-card p {
+      font-size: 0.85rem;
+      color: var(--text-2);
+      margin: 0;
+    }
+
+    /* Purpose list as pill tags */
+    .purpose-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      list-style: none;
+      padding: 0;
+      margin-top: 14px;
+    }
+
+    .purpose-list li {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 16px;
+      background: var(--accent-lt);
+      border: 1px solid rgba(22,163,74,0.2);
+      border-radius: 24px;
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: #14532d;
+    }
+
+    .purpose-list li::before {
+      content: '✓';
+      font-weight: 800;
+      color: var(--accent);
+    }
+
+    /* Criteria two-column */
+    .criteria-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 14px;
+    }
+
+    .criteria-card {
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid;
+    }
+
+    .criteria-card.good {
+      background: #f0fdf4;
+      border-color: rgba(22,163,74,0.25);
+    }
+
+    .criteria-card.bad {
+      background: #fff5f5;
+      border-color: rgba(220,38,38,0.2);
+    }
+
+    .criteria-card h4 {
+      font-family: 'Syne', sans-serif;
+      font-size: 0.9rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      margin-bottom: 12px;
+    }
+
+    .criteria-card.good h4 { color: var(--good); }
+    .criteria-card.bad  h4 { color: var(--bad); }
+
+    .criteria-card ul {
+      padding-left: 16px;
+      margin: 0;
+    }
+
+    .criteria-card li {
+      font-size: 0.84rem;
+      color: var(--text-2);
+      margin-bottom: 5px;
+    }
+
+    @media (max-width: 600px) {
+      .criteria-grid { grid-template-columns: 1fr; }
+      .about-hero { flex-direction: column; }
+    }
+  </style>
+</head>
+
+<body>
+<div class="grid-container">
+
+  <!-- ══ HEADER ══════════════════════════════════════════ -->
+  <header class="header">
+    <nav class="top-nav">
+      <div class="logo">
+        <img src="images/logo.png.png" alt="Logo">
+        <span>Banana Sorting</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="index.html">Dashboard</a></li>
+        <li><a href="report.html">Report</a></li>
+        <li><a href="about.html" class="active">About</a></li>
+      </ul>
+      <div class="underline"></div>
+    </nav>
+  </header>
+
+  <!-- ══ SIDEBAR (empty — keeps grid) ═══════════════════ -->
+  <aside id="sidebar"></aside>
+
+  <!-- ══ MAIN ════════════════════════════════════════════ -->
+  <main class="main-container">
+
+    <!-- Hero banner -->
+    <div class="about-hero">
+      <div class="about-hero-icon">🍌</div>
+      <div class="about-hero-text">
+        <h1>Banana Sorting Monitoring System</h1>
+        <p>An automated platform for real-time banana quality inspection and grading, following Philippine and ASEAN export standards.</p>
+      </div>
+    </div>
+
+    <!-- System Overview -->
+    <section class="about-section">
+      <h2>System Overview</h2>
+      <p>
+        The Banana Sorting Monitoring System automates banana grading using computer vision.
+        A camera analyzes each banana as it passes through the sorting area, classifying it as
+        <strong>Good</strong> or <strong>Bad</strong>. Results are logged in real-time and
+        displayed on the monitoring dashboard.
+      </p>
+    </section>
+
+    <!-- Purpose -->
+    <section class="about-section">
+      <h2>Purpose of the System</h2>
+      <ul class="purpose-list">
+        <li>Automate the banana grading process</li>
+        <li>Reduce manual inspection and human error</li>
+        <li>Improve sorting speed and efficiency</li>
+        <li>Real-time monitoring of sorting results</li>
+        <li>Consistent banana quality standards</li>
+      </ul>
+    </section>
+
+    <!-- How it works -->
+    <section class="about-section">
+      <h2>How the System Works</h2>
+      <div class="steps-grid">
+        <div class="step-card">
+          <span class="step-num">01</span>
+          <p>Bananas are placed on the sorting conveyor.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">02</span>
+          <p>Camera captures images of each banana.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">03</span>
+          <p>System analyzes color, size, and surface condition.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">04</span>
+          <p>Banana is classified as <strong>Good</strong> or <strong>Bad</strong>.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">05</span>
+          <p>Results are sent to the monitoring dashboard.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- System Architecture -->
+    <section class="about-section">
+      <h2>System Architecture</h2>
+      <p>The diagram below illustrates how data flows from image capture to the dashboard.</p>
+      <div class="system-diagram">
+        <img src="images/system-diagram.png" alt="System Architecture Diagram">
+      </div>
+    </section>
+
+    <!-- Grading Criteria -->
+    <section class="about-section">
+      <h2>Grading Criteria for Export Banana</h2>
+      <div class="criteria-grid">
+        <div class="criteria-card good">
+          <h4>✓ Good Banana</h4>
+          <ul>
+            <li>Green peel color</li>
+            <li>Minimal bruises or damage</li>
+            <li>Normal banana shape</li>
+            <li>Acceptable size range</li>
+          </ul>
+        </div>
+        <div class="criteria-card bad">
+          <h4>✕ Bad Banana</h4>
+          <ul>
+            <li>Dark discoloration or black spots</li>
+            <li>Large bruises or visible defects</li>
+            <li>Abnormal shape or very small size</li>
+            <li>Signs of spoilage or rot</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- Size Classification -->
+    <section class="about-section">
+      <h2>Size Classification</h2>
+      <p>
+        Size is evaluated using estimated length measurements based on the Philippine Cavendish
+        export standard (Codex Alimentarius / Del Monte).
+      </p>
+      <table class="grading-table">
+        <thead>
+          <tr>
+            <th>Size Class</th>
+            <th>Length</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td><strong>Class A</strong></td><td>≥ 20 cm</td><td>Premium export grade</td></tr>
+          <tr><td><strong>Class B</strong></td><td>17 – 19.9 cm</td><td>Standard export grade</td></tr>
+          <tr><td><strong>Class C</strong></td><td>14 – 16.9 cm</td><td>Below standard / local market</td></tr>
+          <tr><td><strong>Class D</strong></td><td>&lt; 14 cm</td><td>Reject (below Codex minimum)</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- Basis for Grading -->
+    <section class="about-section">
+      <h2>Basis for Grading</h2>
+      <p>
+        The system's grading standards follow ASEAN guidelines and the Philippine National
+        Standard (PNS/BAFPS 64:2008) for banana export quality. Key post-harvest indicators
+        include peel color maturity, absence of defects, uniform size and shape, and overall
+        appearance — ensuring bananas classified as Good meet international market expectations.
+      </p>
+    </section>
+
+    <!-- How to Use -->
+    <section class="about-section">
+      <h2>How to Use the System</h2>
+      <div class="steps-grid">
+        <div class="step-card">
+          <span class="step-num">01</span>
+          <p>Turn on the sorting device.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">02</span>
+          <p>Place bananas on the conveyor or sorting area.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">03</span>
+          <p>Camera captures and analyzes the bananas.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">04</span>
+          <p>System automatically classifies each banana.</p>
+        </div>
+        <div class="step-card">
+          <span class="step-num">05</span>
+          <p>View results on the monitoring dashboard.</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="js/nav.js"></script>
+</body>
+</html>

@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Banana Sorting — Report</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.4/css/jquery.dataTables.min.css">
+
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://code.jquery.com/jquery-3.5.1.js"></script>
+  <script src="https://cdn.datatables.net/1.13.4/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+
+  <style>
+    .dataTables_wrapper,
+    .dataTables_wrapper * {
+      font-family: 'DM Sans', sans-serif !important;
+    }
+    .dataTables_wrapper .dataTables_length,
+    .dataTables_wrapper .dataTables_filter {
+      margin-bottom: 14px;
+      font-size: 0.84rem;
+      color: var(--text-2);
+    }
+    .dataTables_wrapper .top { display: none !important; }
+
+    /* ── Toolbar row ── */
+    .report-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 1080px;
+      margin-bottom: 20px;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    /* ── Active date label ── */
+    .active-date-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 16px;
+      background: var(--accent-lt);
+      border: 1px solid rgba(22,163,74,0.25);
+      border-radius: var(--r-sm);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.84rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    /* ── Record count badge ── */
+    .record-count-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      background: var(--accent-lt);
+      border: 1px solid rgba(22,163,74,0.2);
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-left: 8px;
+    }
+
+    /* ── Clear date button in sidebar ── */
+    #clearDate {
+      width: 100%;
+      margin-top: -8px;
+      margin-bottom: 18px;
+      padding: 7px 0;
+      background: transparent;
+      border: 1px solid var(--sb-border);
+      border-radius: var(--r-sm);
+      color: var(--sb-muted);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+      letter-spacing: 0.3px;
+    }
+    #clearDate:hover {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+    }
+  </style>
+</head>
+
+<body>
+<div class="grid-container">
+
+  <!-- ══ HEADER ══════════════════════════════════════════ -->
+  <header class="header">
+    <nav class="top-nav">
+      <div class="logo">
+        <img src="images/logo.png.png" alt="Logo">
+        <span>Banana Sorting</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="index.html">Dashboard</a></li>
+        <li><a href="report.html" class="active">Report</a></li>
+        <li><a href="about.html">About</a></li>
+      </ul>
+      <div class="underline"></div>
+    </nav>
+  </header>
+
+  <!-- ══ SIDEBAR ═════════════════════════════════════════ -->
+  <aside id="sidebar">
+    <h3>Filters</h3>
+
+    <label>Search</label>
+    <input type="text" id="customSearch" placeholder="Search records…">
+
+    <label>Result</label>
+    <select id="resultFilter">
+      <option value="">All Results</option>
+      <option value="Good">Good</option>
+      <option value="Bad">Bad</option>
+    </select>
+
+    <label>Date</label>
+    <input type="date" id="dateFilter">
+    <button id="clearDate">✕ &nbsp;Clear (show today)</button>
+  </aside>
+
+  <!-- ══ MAIN ════════════════════════════════════════════ -->
+  <main class="main-container">
+
+    <!-- Toolbar -->
+    <div class="report-toolbar">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <div class="active-date-label">
+          📅 &nbsp;<span id="active-date-display">Today</span>
+        </div>
+        <span class="record-count-badge" id="record-count-badge">0 records</span>
+      </div>
+      <button class="export-btn" id="open-export">&#8659;&nbsp; Export Data</button>
+    </div>
+
+    <!-- Loading -->
+    <div id="loadingIndicator">Loading records from Firestore… ⏳</div>
+
+    <!-- Table wrapper (hidden until data loads) -->
+    <div id="table-wrapper" style="width:100%;display:none;">
+      <table id="myTable" style="width:100%;">
+        <thead>
+          <tr>
+            <th>Inspection ID</th>
+            <th>Timestamp</th>
+            <th>Size (cm)</th>
+            <th>Defect %</th>
+            <th>Result</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+
+  </main>
+</div>
+
+<!-- ══ EXPORT MODAL ════════════════════════════════════════ -->
+<div id="export-overlay">
+  <div id="export-panel">
+    <button class="ep-close" id="close-export">✕</button>
+    <h2>Export Data</h2>
+    <p class="ep-sub">Select a date range and preferred format</p>
+    <div class="ep-row">
+      <div class="ep-field">
+        <label>From Date</label>
+        <input type="date" id="ep-start">
+      </div>
+      <div class="ep-field">
+        <label>To Date</label>
+        <input type="date" id="ep-end">
+      </div>
+    </div>
+    <p class="ep-label">Format</p>
+    <div class="fmt-row">
+      <button class="fmt-pill active" data-fmt="excel">📊 Excel (.xlsx)</button>
+      <button class="fmt-pill"        data-fmt="pdf">📄 PDF</button>
+    </div>
+    <button class="ep-dl-btn" id="do-export">⬇ &nbsp;Download</button>
+    <div id="export-msg"></div>
+  </div>
+</div>
+
+<!-- ══ SCRIPT ══════════════════════════════════════════════ -->
+<script>
+  /* ─── Firebase ───────────────────────────────────────── */
+  const firebaseConfig = {
+    apiKey: "AIzaSyCgXIk7OAq5pAMVV1oYogznt_Gc2BCB8KM",
+    authDomain: "banana-sorting-5f22d.firebaseapp.com",
+    databaseURL: "https://banana-sorting-5f22d-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "banana-sorting-5f22d",
+    storageBucket: "banana-sorting-5f22d.firebasestorage.app",
+    messagingSenderId: "552716690697",
+    appId: "1:552716690697:web:4590775f24e701d7cbdfd8",
+    measurementId: "G-THNGNCEGMF"
+  };
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
+  /* ─── State ──────────────────────────────────────────── */
+  let allRecordsCache = [];   // raw Firestore docs (never modified)
+  let selectedDate    = null; // null = show today, "YYYY-MM-DD" = specific day
+  let dtInstance      = null; // DataTable reference
+  let refreshInterval;
+
+  /* ─── Utility helpers ────────────────────────────────── */
+  function parseTS(ts) {
+    if (!ts) return null;
+    if (ts.toDate) return ts.toDate();                       // Firestore Timestamp
+    if (typeof ts === 'string') return new Date(ts.replace(' ', 'T'));
+    return new Date(ts);
+  }
+
+  function formatTimestamp(ts) {
+    const d = parseTS(ts);
+    return d ? d.toLocaleString() : 'N/A';
+  }
+
+  // "YYYY-MM-DD" from a JS Date in LOCAL time
+  function toDateKey(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  function todayKey() { return toDateKey(new Date()); }
+
+  function capGrade(g) {
+    if (!g) return 'N/A';
+    return g.charAt(0).toUpperCase() + g.slice(1).toLowerCase();
+  }
+
+  function resultBadge(grade) {
+    const g     = capGrade(grade);
+    const color = g === 'Good' ? '#5B6D49' : '#dc2626';
+    const bg    = g === 'Good' ? '#e8ece2'  : '#fee2e2';
+    return `<span style="display:inline-flex;align-items:center;padding:3px 10px;
+      border-radius:20px;background:${bg};color:${color};font-weight:700;
+      font-size:0.8rem;">${g}</span>`;
+  }
+
+  /* ─── Filter records to a single calendar day ──────── */
+  function getRecordsForDay(dateKey) {
+    const [y, m, d] = dateKey.split('-').map(Number);
+    const start     = new Date(y, m - 1, d, 0, 0, 0, 0);
+    const end       = new Date(y, m - 1, d, 23, 59, 59, 999);
+    return allRecordsCache.filter(rec => {
+      const ts = parseTS(rec.timestamp);
+      return ts && ts >= start && ts <= end;
+    });
+  }
+
+  /* ─── Update the toolbar date label ─────────────────── */
+  function updateDateLabel(dateKey) {
+    const el    = document.getElementById('active-date-display');
+    const today = todayKey();
+    if (dateKey === today) {
+      el.textContent = 'Today — ' + new Date().toLocaleDateString(undefined, {
+        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+      });
+    } else {
+      const [y, m, d] = dateKey.split('-').map(Number);
+      el.textContent  = new Date(y, m - 1, d).toLocaleDateString(undefined, {
+        weekday: 'short', month: 'short', day: 'numeric', year: 'numeric'
+      });
+    }
+  }
+
+  /* ─── Build / rebuild DataTable ──────────────────────── */
+  function rebuildTable(records) {
+    // 1. Destroy existing DataTable instance first
+    if (dtInstance !== null) {
+      dtInstance.destroy();
+      dtInstance = null;
+    }
+
+    // 2. Repopulate tbody
+    const tbody = document.getElementById('tableBody');
+    tbody.innerHTML = '';
+
+    records.forEach(rec => {
+      const ts        = formatTimestamp(rec.timestamp);
+      const defectPct = (rec.defect_pct !== undefined && rec.defect_pct !== null)
+                          ? Number(rec.defect_pct).toFixed(2) + '%'
+                          : 'N/A';
+      const tr        = document.createElement('tr');
+      tr.innerHTML    = `
+        <td>${rec.banana_id || 'N/A'}</td>
+        <td>${ts}</td>
+        <td>${rec.size_cm  || 'N/A'}</td>
+        <td>${defectPct}</td>
+        <td>${resultBadge(rec.grade)}</td>`;
+      tbody.appendChild(tr);
+    });
+
+    // 3. Update count badge
+    document.getElementById('record-count-badge').textContent =
+      records.length + ' record' + (records.length !== 1 ? 's' : '');
+
+    // 4. Reveal the table
+    document.getElementById('loadingIndicator').style.display = 'none';
+    document.getElementById('table-wrapper').style.display    = 'block';
+
+    // 5. Init DataTable on the now-visible table
+    dtInstance = $('#myTable').DataTable({
+      dom:        '<"top">rtip',
+      pageLength: 25,
+      order:      [[1, 'desc']]
+    });
+
+    // 6. Wire up sidebar filters to this new DataTable instance
+    const searchInput  = document.getElementById('customSearch');
+    const resultSelect = document.getElementById('resultFilter');
+
+    // Restore any values the user had typed before the rebuild
+    if (searchInput.value)  dtInstance.search(searchInput.value).draw();
+    if (resultSelect.value) {
+      dtInstance.column(4)
+        .search('^' + resultSelect.value + '$', true, false)
+        .draw();
+    }
+
+    $(searchInput).off('keyup').on('keyup', function () {
+      dtInstance.search(this.value).draw();
+    });
+
+    $(resultSelect).off('change').on('change', function () {
+      dtInstance.column(4)
+        .search(this.value ? '^' + this.value + '$' : '', true, false)
+        .draw();
+    });
+  }
+
+  /* ─── Main render: pick the active date and display ─── */
+  function renderForActiveDate() {
+    const dateKey = selectedDate || todayKey();
+    updateDateLabel(dateKey);
+    const records = getRecordsForDay(dateKey);
+    rebuildTable(records);
+  }
+
+  /* ─── Load all records then render ───────────────────── */
+  async function loadBananaData() {
+    try {
+      const snap = await db.collection('banana_records').get();
+      allRecordsCache = [];
+      snap.forEach(doc => allRecordsCache.push(doc.data()));
+      renderForActiveDate();
+    } catch (e) {
+      document.getElementById('loadingIndicator').innerHTML =
+        '⚠️ Error loading data. Check your internet connection or Firestore rules.';
+      console.error('Firestore error:', e);
+      clearInterval(refreshInterval);
+    }
+  }
+
+  /* ─── Sidebar date input ─────────────────────────────── */
+  document.getElementById('dateFilter').addEventListener('change', function () {
+    selectedDate = this.value || null;
+    renderForActiveDate();
+  });
+
+  document.getElementById('clearDate').addEventListener('click', function () {
+    document.getElementById('dateFilter').value = '';
+    selectedDate = null;
+    renderForActiveDate();
+  });
+
+  /* ─── Bootstrap ──────────────────────────────────────── */
+  $(document).ready(function () {
+    loadBananaData();
+    refreshInterval = setInterval(loadBananaData, 5000);
+  });
+
+  /* ─── Export modal ───────────────────────────────────── */
+  let selectedFmt = 'excel';
+
+  document.getElementById('open-export').addEventListener('click', () => {
+    document.getElementById('export-overlay').classList.add('open');
+    document.getElementById('export-msg').textContent = '';
+  });
+  document.getElementById('close-export').addEventListener('click', () => {
+    document.getElementById('export-overlay').classList.remove('open');
+  });
+  document.getElementById('export-overlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('export-overlay'))
+      document.getElementById('export-overlay').classList.remove('open');
+  });
+  document.querySelectorAll('.fmt-pill').forEach(btn => {
+    btn.addEventListener('click', function () {
+      document.querySelectorAll('.fmt-pill').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      selectedFmt = this.dataset.fmt;
+    });
+  });
+
+  document.getElementById('do-export').addEventListener('click', () => {
+    const msgEl   = document.getElementById('export-msg');
+    const startIn = document.getElementById('ep-start').value;
+    const endIn   = document.getElementById('ep-end').value;
+
+    if (!startIn || !endIn) {
+      msgEl.textContent = 'Please select both a start and end date.'; return;
+    }
+
+    const [sy, sm, sd] = startIn.split('-').map(Number);
+    const [ey, em, ed] = endIn.split('-').map(Number);
+    const startDate    = new Date(sy, sm - 1, sd, 0, 0, 0, 0);
+    const endDate      = new Date(ey, em - 1, ed, 23, 59, 59, 999);
+
+    if (startDate > endDate) {
+      msgEl.textContent = 'Start date must be before end date.'; return;
+    }
+
+    const filtered = allRecordsCache.filter(rec => {
+      const ts = parseTS(rec.timestamp);
+      return ts && ts >= startDate && ts <= endDate;
+    });
+
+    if (filtered.length === 0) {
+      msgEl.textContent = 'No records found for the selected date range.'; return;
+    }
+    msgEl.textContent = '';
+
+    const label   = `Banana_Report_${startIn}_to_${endIn}`;
+    const headers = ['Inspection ID', 'Timestamp', 'Size (cm)', 'Defect %', 'Result'];
+    const rows    = filtered.map(rec => [
+      rec.banana_id || '',
+      formatTimestamp(rec.timestamp),
+      rec.size_cm   || '',
+      (rec.defect_pct !== undefined && rec.defect_pct !== null)
+        ? Number(rec.defect_pct).toFixed(2) + '%' : 'N/A',
+      capGrade(rec.grade)
+    ]);
+
+    if (selectedFmt === 'excel') {
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      ws['!cols'] = [14, 22, 12, 12, 10].map(w => ({ wch: w }));
+      const wb   = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Report');
+      XLSX.writeFile(wb, label + '.xlsx');
+    } else {
+      const { jsPDF } = window.jspdf;
+      const doc       = new jsPDF({ orientation: 'landscape' });
+      doc.setFontSize(14); doc.setTextColor(12, 60, 1);
+      doc.text('Banana Sorting Report', 14, 16);
+      doc.setFontSize(9);  doc.setTextColor(120);
+      doc.text(`Date range: ${startIn}  to  ${endIn}`, 14, 23);
+      doc.autoTable({
+        startY: 28, head: [headers], body: rows,
+        styles:             { font: 'helvetica', fontSize: 9 },
+        headStyles:         { fillColor: [12, 60, 1], textColor: [162, 172, 130], fontStyle: 'bold' },
+        alternateRowStyles: { fillColor: [241, 242, 237] },
+        margin:             { left: 14, right: 14 }
+      });
+      doc.save(label + '.pdf');
+    }
+    document.getElementById('export-overlay').classList.remove('open');
+  });
+</script>
+
+<script src="js/nav.js"></script>
+</body>
+</html>

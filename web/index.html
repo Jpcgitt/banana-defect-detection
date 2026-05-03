@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>Banana Sorting — Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+
+  <style>
+    /* ── Device status variants ── */
+    .device-status-modern.is-active {
+      background: var(--sb-bg);
+    }
+    .device-status-modern.is-standby {
+      background: #2E2D1D;
+    }
+
+    /* Active pill */
+    .status-pill.active-pill {
+      background: rgba(255,255,255,0.15);
+      border-color: rgba(255,255,255,0.3);
+    }
+    .status-pill.active-pill .status-dot {
+      background: #A2AC82;
+      box-shadow: 0 0 0 0 rgba(162,172,130,0.7);
+      animation: pulse-dot 2s infinite;
+    }
+
+    /* Standby pill */
+    .status-pill.standby-pill {
+      background: rgba(255,255,255,0.08);
+      border-color: rgba(255,255,255,0.15);
+    }
+    .status-pill.standby-pill .status-dot {
+      background: #888;
+      animation: none;
+      box-shadow: none;
+    }
+
+    /* Last-seen timestamp under the pill */
+    .status-last-seen {
+      font-size: 0.7rem;
+      color: rgba(241,242,237,0.5);
+      margin-top: 4px;
+    }
+
+    /* ── Pie chart wide override ── */
+    .chart-cards.pie-wide {
+      grid-column: 1 / -1;
+      height: clamp(300px, 45vw, 340px);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .chart-cards.pie-wide #pie-chart {
+      width: 100%;
+      max-width: 480px;
+    }
+  </style>
+</head>
+
+<body>
+<div class="grid-container">
+
+  <!-- ══ HEADER ══════════════════════════════════════════ -->
+  <header class="header">
+    <nav class="top-nav">
+      <div class="logo">
+        <img src="images/logo.png.png" alt="Logo">
+        <span>Banana Sorting</span>
+      </div>
+      <ul class="nav-links">
+        <li><a href="index.html" class="active">Dashboard</a></li>
+        <li><a href="report.html">Report</a></li>
+        <li><a href="about.html">About</a></li>
+      </ul>
+      <div class="underline"></div>
+    </nav>
+  </header>
+
+  <!-- ══ SIDEBAR ═════════════════════════════════════════ -->
+  <aside id="sidebar">
+
+    <p class="overview-title">Overview</p>
+
+    <div class="overview-section">
+      <p class="label">Total Inspections</p>
+      <h1 class="big-number" id="totalInspections">0</h1>
+      <p class="sub-text">All Time</p>
+    </div>
+
+    <hr>
+
+    <div class="period-selector">
+      <button id="period-btn" class="period-btn">
+        <span id="period-btn-label">Today</span>
+        <span class="period-arrow">▾</span>
+      </button>
+      <ul id="period-menu" class="period-menu hidden">
+        <li data-period="today">Today</li>
+        <li data-period="week">This Week</li>
+        <li data-period="month">This Month</li>
+        <li data-period="year">This Year</li>
+      </ul>
+    </div>
+
+    <div class="overview-section period-count-section">
+      <h1 class="big-number" id="periodCount">0</h1>
+      <p class="sub-text" id="periodSubText"></p>
+    </div>
+
+    <hr>
+
+  </aside>
+
+  <!-- ══ MAIN ════════════════════════════════════════════ -->
+  <div class="main-container">
+
+    <!-- Top metric row -->
+    <div class="main-cards">
+
+      <!-- Device status card -->
+      <div class="device-status-modern is-standby" id="device-card">
+        <span class="device-label">Device Status</span>
+        <div class="status-pill standby-pill" id="status-pill">
+          <span class="status-dot" id="status-dot"></span>
+          <span class="status-text" id="status-text">Checking…</span>
+        </div>
+        <p class="status-last-seen" id="status-last-seen"></p>
+      </div>
+
+      <!-- Good -->
+      <div class="card">
+        <div class="card-inner">
+          <p>Good Bananas</p>
+        </div>
+        <span id="goodCount">0</span>
+      </div>
+
+      <!-- Bad -->
+      <div class="card">
+        <div class="card-inner">
+          <p>Bad Bananas</p>
+        </div>
+        <span id="badCount">0</span>
+      </div>
+
+    </div><!-- /main-cards -->
+
+    <!-- Charts -->
+    <div class="charts">
+
+      <!-- Good vs Bad — now full width -->
+      <div class="chart-cards pie-wide">
+        <p class="charts-title">Good vs Bad Bananas</p>
+        <div id="pie-chart"></div>
+      </div>
+
+      <!-- Monthly / filter chart — full width -->
+      <div class="chart-cards wide">
+        <div class="chart-header">
+          <p class="charts-title" id="chart-title">Monthly Banana Sorting</p>
+
+          <div class="filter">
+            <button id="filter-btn">Filter ▾</button>
+
+            <ul id="filter-menu" class="hidden">
+              <li data-type="daily">Daily</li>
+              <li data-type="weekly">Weekly</li>
+              <li data-type="monthly">Monthly</li>
+              <li data-type="yearly">Yearly</li>
+            </ul>
+
+            <div id="date-range" class="hidden">
+              <input type="date" id="start-date"  class="hidden">
+              <input type="date" id="end-date"    class="hidden">
+
+              <div id="start-month-group" class="month-group hidden">
+                <label class="month-group-label">From</label>
+                <select id="start-month-sel">
+                  <option value="1">January</option><option value="2">February</option>
+                  <option value="3">March</option><option value="4">April</option>
+                  <option value="5">May</option><option value="6">June</option>
+                  <option value="7">July</option><option value="8">August</option>
+                  <option value="9">September</option><option value="10">October</option>
+                  <option value="11">November</option><option value="12">December</option>
+                </select>
+                <select id="start-month-year"></select>
+              </div>
+
+              <div id="end-month-group" class="month-group hidden">
+                <label class="month-group-label">To</label>
+                <select id="end-month-sel">
+                  <option value="1">January</option><option value="2">February</option>
+                  <option value="3">March</option><option value="4">April</option>
+                  <option value="5">May</option><option value="6">June</option>
+                  <option value="7">July</option><option value="8">August</option>
+                  <option value="9">September</option><option value="10">October</option>
+                  <option value="11">November</option><option value="12">December</option>
+                </select>
+                <select id="end-month-year"></select>
+              </div>
+
+              <input type="number" id="start-year" class="hidden" placeholder="Start Year">
+              <input type="number" id="end-year"   class="hidden" placeholder="End Year">
+
+              <button id="apply-range">Apply</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="monthly-chart"></div>
+      </div>
+
+    </div><!-- /charts -->
+  </div><!-- /main-container -->
+
+</div><!-- /grid-container -->
+
+<!-- Scripts -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/apexcharts/5.3.5/apexcharts.min.js"></script>
+
+<!-- ══ DEVICE STATUS LISTENER ══════════════════════════════ -->
+<script>
+(function () {
+  const firebaseConfig = {
+    apiKey: "AIzaSyCgXIk7OAq5pAMVV1oYogznt_Gc2BCB8KM",
+    authDomain: "banana-sorting-5f22d.firebaseapp.com",
+    databaseURL: "https://banana-sorting-5f22d-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "banana-sorting-5f22d",
+    storageBucket: "banana-sorting-5f22d.firebasestorage.app",
+    messagingSenderId: "552716690697",
+    appId: "1:552716690697:web:4590775f24e701d7cbdfd8",
+    measurementId: "G-THNGNCEGMF"
+  };
+
+  if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+
+  const card      = document.getElementById("device-card");
+  const pill      = document.getElementById("status-pill");
+  const dot       = document.getElementById("status-dot");
+  const text      = document.getElementById("status-text");
+  const lastSeen  = document.getElementById("status-last-seen");
+
+  const INACTIVE_THRESHOLD_MIN = 5;
+
+  function applyStatus(isActive, lastTimestamp) {
+    if (isActive) {
+      card.className  = "device-status-modern is-active";
+      pill.className  = "status-pill active-pill";
+      text.textContent = "Active";
+      lastSeen.textContent = lastTimestamp ? "Last seen: " + lastTimestamp : "";
+    } else {
+      card.className  = "device-status-modern is-standby";
+      pill.className  = "status-pill standby-pill";
+      text.textContent = "Inactive";
+      lastSeen.textContent = lastTimestamp ? "Last seen: " + lastTimestamp : "No recent data";
+    }
+  }
+
+  function checkDeviceStatus() {
+    db.collection("banana_records")
+      .orderBy("timestamp", "desc")
+      .limit(1)
+      .get()
+      .then(snap => {
+        if (snap.empty) { applyStatus(false, null); return; }
+        const doc = snap.docs[0].data();
+        const rawStatus = (doc.device_status || "").toString().toUpperCase();
+        if (rawStatus === "ACTIVE")  { applyStatus(true,  formatTS(doc.timestamp)); return; }
+        if (rawStatus === "STANDBY") { applyStatus(false, formatTS(doc.timestamp)); return; }
+
+        let ts = null;
+        if (doc.timestamp && doc.timestamp.toDate) ts = doc.timestamp.toDate();
+        else if (typeof doc.timestamp === "string") ts = new Date(doc.timestamp.replace(" ", "T"));
+
+        if (ts) {
+          const diffMin = (Date.now() - ts.getTime()) / 60000;
+          applyStatus(diffMin <= INACTIVE_THRESHOLD_MIN, formatTS(doc.timestamp));
+        } else {
+          applyStatus(false, null);
+        }
+      })
+      .catch(err => {
+        console.error("Status check error:", err);
+        applyStatus(false, null);
+        lastSeen.textContent = "Connection error";
+      });
+  }
+
+  function formatTS(ts) {
+    if (!ts) return null;
+    if (ts.toDate) return ts.toDate().toLocaleString();
+    if (typeof ts === "string") return new Date(ts.replace(" ", "T")).toLocaleString();
+    return String(ts);
+  }
+
+  checkDeviceStatus();
+  setInterval(checkDeviceStatus, 10000);
+})();
+</script>
+
+<script src="js/nav.js"></script>
+<script src="js/scripts.js"></script>
+</body>
+</html>
