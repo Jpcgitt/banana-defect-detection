@@ -1,0 +1,16 @@
+{
+  "trained_at": "2026-04-30 16:17:06",
+  "good_images": 129,
+  "bad_images": 157,
+  "good_samples": 774,
+  "bad_samples": 942,
+  "total_samples": 1716,
+  "feature_dim": 1860,
+  "accuracy_pct": 99.2,
+  "bad_recall_pct": 99.3,
+  "model": "SVM RBF  C=10  gamma=scale  balanced",
+  "augmentation": "flip-H flip-V flip-HV bright+40 bright-40",
+  "img_size": 64,
+  "hog_bins": 9,
+  "hist_bins": 32
+}
