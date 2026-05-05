@@ -102,16 +102,7 @@ def push_device_status(status: str):
 
 
 # =========================================
-# FIX 1: Sanitiser for Firestore & json.dump
-# -----------------------------------------
-# The cam1_debug / cam2_debug dicts carry:
-#   • roi  — a Python tuple from cv2.boundingRect (json handles fine, but
-#             Firestore SDK prefers lists; tuple → list avoids edge-case
-#             serialisation warnings in some SDK versions).
-#   • numpy scalars — possible in the ML path even after explicit float()
-#             casts if a code-path is changed later. Convert defensively.
-# This function is applied to banana_data before every Firestore set()
-# AND before json.dump in save_banana_data.
+# Sanitiser for Firestore & json.dump
 # =========================================
 def _sanitize(obj):
     """Recursively convert numpy types / tuples to plain Python types."""
@@ -131,20 +122,7 @@ def _sanitize(obj):
 
 
 # =========================================
-# FIX 2: upload_to_firestore — remove the
-# redundant .get().exists read.
-# -----------------------------------------
-# The previous version did:
-#     if doc_ref.get().exists: return   ← extra Firestore READ
-#     doc_ref.set(data)
-#
-# Problem: if the READ times out or throws (network blip, quota, etc.)
-# the exception is caught and the whole upload is silently skipped —
-# the banana record is LOST.
-#
-# Banana IDs are unique (date + daily counter), so the duplicate check
-# is unnecessary. Drop it; call set() directly, which is idempotent
-# (re-uploading the same document just overwrites with identical data).
+# upload_to_firestore
 # =========================================
 def upload_to_firestore(data: dict):
     try:
@@ -259,7 +237,11 @@ def _refresh_title():
     else:
         txt = "BANANA SORTING SYSTEM  --  HSV Fallback  (run train_model.py)"
         col = "#ff9800"
-    root.after(0, lambda: title_label.config(text=txt, fg=col))
+    # FIX 1: Guard against root not existing yet when called early
+    try:
+        root.after(0, lambda: title_label.config(text=txt, fg=col))
+    except Exception:
+        pass
 
 
 def extract_features(img_bgr: np.ndarray) -> np.ndarray:
@@ -380,10 +362,13 @@ SCAN_H = 480
 DISP_W = 480
 DISP_H = 360
 
-cam1 = cv2.VideoCapture(2)   # Zone A -- physical device /dev/video2
-cam2 = cv2.VideoCapture(0)   # Zone B -- physical device /dev/video0
+# FIX 2: Corrected camera indices to match docstring.
+# Docstring says: Camera 1 = /dev/video0 (Zone A), Camera 2 = /dev/video2 (Zone B).
+# Original code had them swapped (cam1→index 2, cam2→index 0).
+cam1 = cv2.VideoCapture(0)   # Zone A -- physical device /dev/video0
+cam2 = cv2.VideoCapture(2)   # Zone B -- physical device /dev/video2
 
-for cam, idx in ((cam1, 2), (cam2, 0)):
+for cam, idx in ((cam1, 0), (cam2, 2)):
     cam.set(cv2.CAP_PROP_FRAME_WIDTH,  SCAN_W)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, SCAN_H)
     st = "OK" if cam.isOpened() else "NOT FOUND"
@@ -586,8 +571,18 @@ def classify_banana_local(frame: np.ndarray, cam_label: str = "") -> tuple:
         pred_idx   = int(np.argmax(proba))
         pred_label = _ml_encoder.classes_[pred_idx].upper()
         confidence = float(proba[pred_idx])
-        bad_idx    = list(_ml_encoder.classes_).index("bad")
-        bad_prob   = float(proba[bad_idx])
+
+        # FIX 3: Guard against "bad" label missing from encoder classes.
+        # If the model was trained without any "bad" samples, .index() raises
+        # ValueError and crashes the classification thread silently.
+        classes_list = list(_ml_encoder.classes_)
+        if "bad" in classes_list:
+            bad_idx  = classes_list.index("bad")
+            bad_prob = float(proba[bad_idx])
+        else:
+            # Fallback: treat 1 - good_prob as bad probability
+            bad_prob = 1.0 - confidence if pred_label == "GOOD" else confidence
+
         defect_pct = round(bad_prob * 100, 2)
     except Exception as e:
         print(f"  [{cam_label}][ML] Predict error: {e} -> HSV fallback")
@@ -623,9 +618,7 @@ def estimate_size(frame) -> float:
 
 
 # =========================================
-# FIX 3: save_banana_data — sanitize before
-# json.dump so numpy scalars never cause a
-# silent TypeError that swallows the record.
+# save_banana_data
 # =========================================
 def save_banana_data(data: dict):
     try:
@@ -669,10 +662,16 @@ def fire_servo_bad():
 # =========================================
 class BananaInFlight:
     _seq = 0
+    # FIX 4: Use a class-level lock to make _seq increment thread-safe.
+    # Without this, two cameras triggering simultaneously could generate
+    # the same sequence number, causing duplicate label names.
+    _seq_lock = threading.Lock()
 
     def __init__(self, t: float):
-        BananaInFlight._seq += 1
-        self.label           = f"Banana#{BananaInFlight._seq}"
+        with BananaInFlight._seq_lock:
+            BananaInFlight._seq += 1
+            seq = BananaInFlight._seq
+        self.label           = f"Banana#{seq}"
         self.scan_start_time = t
         self.scan1_done      = False;  self.scan1_grade = None
         self.scan1_defect    = 0.0;    self.scan1_frame = None
@@ -690,20 +689,6 @@ _pipeline_lock = threading.Lock()
 
 # =========================================
 # GRADE FINALISATION
-# -----------------------------------------
-# AND gate:
-#   GOOD + GOOD  →  GOOD  (then size check may downgrade to BAD)
-#   BAD  + anything  →  BAD
-#
-# Timeout / single-camera fallback:
-#   If one camera never fires, its slot grade is None.
-#   effective() maps None → GOOD (absent = no defect detected).
-#   This means the result is driven by whichever camera did fire.
-#
-# FIX 4: corrected c1_display / c2_display mirroring logic.
-#   Previous code had the mirror condition inverted for the cam2-only
-#   case, causing the table to show cam2's grade under Cam1 column
-#   without the "~" prefix and vice-versa.
 # =========================================
 def finalise_grade(b: BananaInFlight):
     def effective(g):
@@ -778,27 +763,15 @@ def finalise_grade(b: BananaInFlight):
     else:
         print("  [GOOD] -> Servo stays home  (banana reaches GOOD-zone ramp)")
 
-    # --------------------------------------------------------
-    # FIX 4: corrected display-mirror logic for results table.
-    #
-    # Rule: show the camera's own grade when it fired.
-    #       Prefix "~" when the grade is mirrored from the other
-    #       camera because this one never triggered.
-    #
-    # Previous code had the mirror conditions swapped:
-    #   not scan1_done → labelled cam2 as "~"  ← wrong direction
-    #   not scan2_done → labelled cam1 as "~"  ← wrong direction
-    # --------------------------------------------------------
+    # Corrected display-mirror logic for results table.
     if b.scan1_done:
         c1_display = b.scan1_grade or "N/A"
     else:
-        # Cam1 never fired; show cam2's result with tilde marker
         c1_display = f"~{b.scan2_grade}" if b.scan2_grade else "N/A"
 
     if b.scan2_done:
         c2_display = b.scan2_grade or "N/A"
     else:
-        # Cam2 never fired; show cam1's result with tilde marker
         c2_display = f"~{b.scan1_grade}" if b.scan1_grade else "N/A"
 
     with _state_lock:
@@ -1136,19 +1109,24 @@ def draw_fov_overlay(frame: np.ndarray, grade_label: str = "",
                         (drx, dry + drh + 26),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.32, (0, 140, 255), 1)
 
-        crop_disp = disp[dry:dry+drh, drx:drx+drw]
-        if crop_disp.size > 0:
-            hsv_c       = cv2.cvtColor(crop_disp, cv2.COLOR_BGR2HSV)
-            banana_mask = _segment_banana(hsv_c)
-            defect_mask = _detect_defects(hsv_c, banana_mask)
-            crop_disp[defect_mask > 0] = DEF_COL
-            disp[dry:dry+drh, drx:drx+drw] = crop_disp
-            def_px = int(np.sum(defect_mask > 0))
-            ban_px = int(np.sum(banana_mask > 0))
-            ratio  = def_px / ban_px * 100 if ban_px > 0 else 0.0
-            cv2.putText(disp, f"HSV {ratio:.1f}%",
-                        (drx+2, dry+drh-6),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.32, (140, 140, 140), 1)
+        # FIX 5: Guard overlay crop slice against zero-area rectangles.
+        # If drw or drh rounds to 0 (tiny ROI at display scale), the
+        # slice is empty and _segment_banana / _detect_defects receive a
+        # 0-height array, causing a cv2 error inside morphologyEx.
+        if drw > 0 and drh > 0:
+            crop_disp = disp[dry:dry+drh, drx:drx+drw]
+            if crop_disp.size > 0:
+                hsv_c       = cv2.cvtColor(crop_disp, cv2.COLOR_BGR2HSV)
+                banana_mask = _segment_banana(hsv_c)
+                defect_mask = _detect_defects(hsv_c, banana_mask)
+                crop_disp[defect_mask > 0] = DEF_COL
+                disp[dry:dry+drh, drx:drx+drw] = crop_disp
+                def_px = int(np.sum(defect_mask > 0))
+                ban_px = int(np.sum(banana_mask > 0))
+                ratio  = def_px / ban_px * 100 if ban_px > 0 else 0.0
+                cv2.putText(disp, f"HSV {ratio:.1f}%",
+                            (drx+2, dry+drh-6),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.32, (140, 140, 140), 1)
     else:
         cv2.putText(disp, "no banana",
                     (w_px-80, h_px-7),
@@ -1411,9 +1389,21 @@ def gui_refresh():
                 r["time"], r["id"], r["size"], r["size_ok"],
                 r["defect"], r["c1"], r["c2"], r["grade"],
             ), tags=(tag,))
-            root.after(2000, lambda: state_write(last_grade1="", last_grade2=""))
+            # FIX 6: Clear only after confirmed new result using root.after,
+            # not a blanket 2-second timer that wipes grades from concurrent bananas.
+            # Capture the grades at insertion time via default args to avoid
+            # late-binding closure bug (all lambdas would share the final loop value).
+            _bid = r["id"]
+            root.after(2000, lambda bid=_bid: _clear_grade_if_stale(bid))
 
     root.after(80, gui_refresh)
+
+
+def _clear_grade_if_stale(banana_id: str):
+    """Only clear the grade display if no newer result has arrived."""
+    st = state_read()
+    if st.get("last_banana_id") == banana_id:
+        state_write(last_grade1="", last_grade2="")
 
 
 # =========================================
@@ -1436,19 +1426,6 @@ def start_background_threads():
     print(f"[System] Size rejection threshold={MIN_SIZE_CM}cm")
 
 
-# =========================================
-# FIX 5: on_close — push OFFLINE status
-# synchronously, not in a daemon thread.
-# -----------------------------------------
-# Previous code:
-#   threading.Thread(target=push_device_status,
-#                    args=("OFFLINE",), daemon=True).start()
-#   root.destroy()   ← kills the daemon before Firestore write completes
-#
-# Fix: call push_device_status() directly on the main thread, THEN
-# destroy the window.  A 0.3 s sleep is added after the window is gone
-# to let any in-flight non-daemon upload_to_firestore threads complete.
-# =========================================
 def on_close():
     global _running
     _running = False
