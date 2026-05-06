@@ -35,6 +35,11 @@ Hardware pins
   Camera 1     : /dev/video0   (Zone A)
   Camera 2     : /dev/video2   (Zone B)
 
+  Shutdown btn : GPIO 5  (physical pin 29) — pull-up, active LOW
+                 Hold ≥ BUTTON_HOLD_S → clean shutdown
+  Reboot   btn : GPIO 6  (physical pin 31) — pull-up, active LOW
+                 Hold ≥ BUTTON_HOLD_S → clean reboot
+
   No ultrasonic sensors required.
 
 Visual trigger parameters
@@ -71,6 +76,7 @@ import time
 import threading
 import pickle
 import json
+import subprocess
 from datetime import datetime
 from pathlib import Path
 
@@ -129,7 +135,7 @@ def upload_to_firestore(data: dict):
         clean   = _sanitize(data)
         doc_id  = clean["banana_id"]
         doc_ref = db.collection("banana_records").document(doc_id)
-        doc_ref.set(clean)          # direct write — no pre-read
+        doc_ref.set(clean)
         print(f"[Firestore] Uploaded: {doc_id}")
     except Exception as e:
         print(f"[Firestore] upload error: {e}")
@@ -237,7 +243,6 @@ def _refresh_title():
     else:
         txt = "BANANA SORTING SYSTEM  --  HSV Fallback  (run train_model.py)"
         col = "#ff9800"
-    # FIX 1: Guard against root not existing yet when called early
     try:
         root.after(0, lambda: title_label.config(text=txt, fg=col))
     except Exception:
@@ -309,40 +314,51 @@ print(f"[Counter] Start at {_banana_counter} for {_today_str}")
 
 
 # =========================================
-# GPIO SETUP  (servo only — no ultrasonic)
+# GPIO SETUP
 # =========================================
 SERVO_PIN     = 25
 SERVO_HOME_US = 500    # 0 deg   -- ramp clear (GOOD path, default)
 SERVO_PUSH_US = 2500   # 180 deg -- ramp extended (BAD ejector)
+
+# ---  Hardware control buttons  ---
+SHUTDOWN_PIN   = 5      # GPIO 5  (physical pin 29) — hold to shut down RPi
+REBOOT_PIN     = 6      # GPIO 6  (physical pin 31) — hold to reboot RPi
+BUTTON_HOLD_S  = 5.0    # seconds button must be held before action fires
+BUTTON_POLL_MS = 50     # polling interval in milliseconds
 
 h = lgpio.gpiochip_open(0)
 
 lgpio.gpio_claim_output(h, SERVO_PIN, 0)
 lgpio.tx_servo(h, SERVO_PIN, SERVO_HOME_US)
 
-print(f"[GPIO] Servo GPIO{SERVO_PIN}  "
-      f"HOME={SERVO_HOME_US}us (0deg)  PUSH={SERVO_PUSH_US}us (180deg)")
+# Buttons wired: one side to GPIO pin, other side to GND.
+# Internal pull-up → pin reads HIGH at rest, LOW when pressed.
+lgpio.gpio_claim_input(h, SHUTDOWN_PIN, lgpio.SET_PULL_UP)
+lgpio.gpio_claim_input(h, REBOOT_PIN,   lgpio.SET_PULL_UP)
+
+print(f"[GPIO] Servo      GPIO{SERVO_PIN}  "
+      f"HOME={SERVO_HOME_US}us (0°)  PUSH={SERVO_PUSH_US}us (180°)")
+print(f"[GPIO] Shutdown   GPIO{SHUTDOWN_PIN}  (hold {BUTTON_HOLD_S}s → poweroff)")
+print(f"[GPIO] Reboot     GPIO{REBOOT_PIN}  (hold {BUTTON_HOLD_S}s → reboot)")
 
 
 # =========================================
 # TIMING CONSTANTS
 # =========================================
-CONVEYOR_SPEED  = 0.15   # m/s
-SERVO_DELAY_S   = 2.0    # s -- wait after BAD before pushing ramp
-SERVO_HOLD_S    = 3.0    # s -- hold ramp extended (banana slides off)
-SCAN_TIMEOUT    = 8.0    # s -- max wait for 2nd camera after 1st fires
+CONVEYOR_SPEED  = 0.15
+SERVO_DELAY_S   = 2.0
+SERVO_HOLD_S    = 3.0
+SCAN_TIMEOUT    = 8.0
 FULL_CYCLE_TIME = SERVO_DELAY_S + SERVO_HOLD_S + 5.0
-SAME_BANANA_WINDOW = 8.0 # must match SCAN_TIMEOUT
+SAME_BANANA_WINDOW = 8.0
 
 # =========================================
 # VISUAL TRIGGER PARAMETERS
 # =========================================
-CENTER_TOL_PX   = 40    # px  -- ROI centre-X must be within this of frame centre-X
-CENTER_TOL_Y_PX = 80    # px  -- ROI centre-Y must be within this of frame centre-Y
-                         #        looser than X because bananas hang at varying heights
-MIN_TRIGGER_PX  = 8000  # px  -- minimum banana mask area to allow trigger
-                         #        filters out small stray objects in the FOV
-VIS_COOLDOWN    = 2.0   # s   -- backup cooldown per camera (re-arm is primary gate)
+CENTER_TOL_PX   = 40
+CENTER_TOL_Y_PX = 80
+MIN_TRIGGER_PX  = 8000
+VIS_COOLDOWN    = 2.0
 
 # =========================================
 # SIZE REJECTION THRESHOLD
@@ -362,11 +378,8 @@ SCAN_H = 480
 DISP_W = 480
 DISP_H = 360
 
-# FIX 2: Corrected camera indices to match docstring.
-# Docstring says: Camera 1 = /dev/video0 (Zone A), Camera 2 = /dev/video2 (Zone B).
-# Original code had them swapped (cam1→index 2, cam2→index 0).
-cam1 = cv2.VideoCapture(0)   # Zone A -- physical device /dev/video0
-cam2 = cv2.VideoCapture(2)   # Zone B -- physical device /dev/video2
+cam1 = cv2.VideoCapture(0)   # Zone A -- /dev/video0
+cam2 = cv2.VideoCapture(2)   # Zone B -- /dev/video2
 
 for cam, idx in ((cam1, 0), (cam2, 2)):
     cam.set(cv2.CAP_PROP_FRAME_WIDTH,  SCAN_W)
@@ -385,9 +398,6 @@ SEG_YELLOW_HIGH = np.array([ 32, 255, 255])
 
 MIN_BANANA_PX         = 3000
 
-# ------------------------------------------------------------------
-# Defect detection thresholds
-# ------------------------------------------------------------------
 DARK_V_MAX            = 80
 BROWN_HUE_LOW         = np.array([  5,  30,  20])
 BROWN_HUE_HIGH        = np.array([ 22, 255, 200])
@@ -425,6 +435,9 @@ _shared = {
     "vis2_offset":    0,
     "vis1_state":     "ARMED",
     "vis2_state":     "ARMED",
+    # --- system action state ---
+    "system_action":  "",    # "", "SHUTTING DOWN", "REBOOTING"
+    "btn_hold_pct":   0,     # 0-100, used for hold progress display
 }
 
 
@@ -537,7 +550,7 @@ def classify_banana_hsv(frame: np.ndarray, cam_label: str = "") -> tuple:
         "defect_px":    defect_px,
         "defect_ratio": round(defect_ratio, 4),
         "defect_pct":   defect_pct,
-        "roi":          list(roi),   # list, not tuple — safe for json + Firestore
+        "roi":          list(roi),
     }
 
 
@@ -572,15 +585,11 @@ def classify_banana_local(frame: np.ndarray, cam_label: str = "") -> tuple:
         pred_label = _ml_encoder.classes_[pred_idx].upper()
         confidence = float(proba[pred_idx])
 
-        # FIX 3: Guard against "bad" label missing from encoder classes.
-        # If the model was trained without any "bad" samples, .index() raises
-        # ValueError and crashes the classification thread silently.
         classes_list = list(_ml_encoder.classes_)
         if "bad" in classes_list:
             bad_idx  = classes_list.index("bad")
             bad_prob = float(proba[bad_idx])
         else:
-            # Fallback: treat 1 - good_prob as bad probability
             bad_prob = 1.0 - confidence if pred_label == "GOOD" else confidence
 
         defect_pct = round(bad_prob * 100, 2)
@@ -596,7 +605,7 @@ def classify_banana_local(frame: np.ndarray, cam_label: str = "") -> tuple:
         "defect_pct": defect_pct,
         "bad_prob":   round(bad_prob, 4),
         "confidence": round(confidence, 4),
-        "roi":        list(roi),     # list, not tuple — safe for json + Firestore
+        "roi":        list(roi),
     }
 
 
@@ -662,9 +671,6 @@ def fire_servo_bad():
 # =========================================
 class BananaInFlight:
     _seq = 0
-    # FIX 4: Use a class-level lock to make _seq increment thread-safe.
-    # Without this, two cameras triggering simultaneously could generate
-    # the same sequence number, causing duplicate label names.
     _seq_lock = threading.Lock()
 
     def __init__(self, t: float):
@@ -692,18 +698,13 @@ _pipeline_lock = threading.Lock()
 # =========================================
 def finalise_grade(b: BananaInFlight):
     def effective(g):
-        # GOOD / EMPTY / None (camera never fired) all count as GOOD.
-        # Any other value (explicitly "BAD") counts as BAD.
         return "GOOD" if g in ("GOOD", "EMPTY", None) else "BAD"
 
-    # Use the camera's own grade when available; fall back to the other
-    # camera's grade (or None if neither fired) for the AND gate input.
     g1 = effective(b.scan1_grade if b.scan1_done else b.scan2_grade)
     g2 = effective(b.scan2_grade if b.scan2_done else b.scan1_grade)
     d1 = b.scan1_defect if b.scan1_done else b.scan2_defect
     d2 = b.scan2_defect if b.scan2_done else b.scan1_defect
 
-    # AND gate: both must be GOOD for the banana to pass.
     final_grade = "GOOD" if (g1 == "GOOD" and g2 == "GOOD") else "BAD"
     defect_pct  = round((d1 + d2) / 2, 2)
 
@@ -751,8 +752,6 @@ def finalise_grade(b: BananaInFlight):
             threading.Thread(target=save_image,
                              args=(frame, bid, lbl), daemon=True).start()
 
-    # Upload to Firestore immediately — non-daemon so it survives a
-    # near-simultaneous shutdown (on_close sleeps 0.3 s to let it land).
     threading.Thread(target=upload_to_firestore,
                      args=(b.banana_data,), daemon=False).start()
 
@@ -763,7 +762,6 @@ def finalise_grade(b: BananaInFlight):
     else:
         print("  [GOOD] -> Servo stays home  (banana reaches GOOD-zone ramp)")
 
-    # Corrected display-mirror logic for results table.
     if b.scan1_done:
         c1_display = b.scan1_grade or "N/A"
     else:
@@ -1109,10 +1107,6 @@ def draw_fov_overlay(frame: np.ndarray, grade_label: str = "",
                         (drx, dry + drh + 26),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.32, (0, 140, 255), 1)
 
-        # FIX 5: Guard overlay crop slice against zero-area rectangles.
-        # If drw or drh rounds to 0 (tiny ROI at display scale), the
-        # slice is empty and _segment_banana / _detect_defects receive a
-        # 0-height array, causing a cv2 error inside morphologyEx.
         if drw > 0 and drh > 0:
             crop_disp = disp[dry:dry+drh, drx:drx+drw]
             if crop_disp.size > 0:
@@ -1178,6 +1172,124 @@ def on_manual_cam2():
     print(f"\n[MANUAL] Cam2 override capture")
     _flash_button(btn_cam2, "MANUAL CAM 2")
     _dispatch_classify(2, snapshot, "Cam2")
+
+
+# =========================================
+# HARDWARE BUTTON WATCHER  (GPIO 5 / GPIO 6)
+# =========================================
+# The watcher polls both pins every BUTTON_POLL_MS milliseconds.
+# A button is active-LOW (pulled HIGH at rest, goes LOW when pressed).
+# The action fires only after the pin has been held LOW continuously
+# for BUTTON_HOLD_S seconds — this prevents accidental triggers from
+# vibration, EMI spikes, or brief brush contacts on the factory floor.
+#
+# Sequence when threshold is reached:
+#   1. Update Firestore status ("SHUTTING DOWN" / "REBOOTING")
+#   2. Set _running = False so all daemon threads exit cleanly
+#   3. Servo home + GPIO teardown
+#   4. Camera release
+#   5. Destroy Tk root (if still alive)
+#   6. os-level: `sudo shutdown -h now`  or  `sudo reboot`
+# =========================================
+
+_btn_hold_start: dict[int, float | None] = {
+    SHUTDOWN_PIN: None,
+    REBOOT_PIN:   None,
+}
+
+
+def _hardware_teardown():
+    """Shared cleanup called before any OS-level power command."""
+    global _running
+    _running = False
+    time.sleep(0.15)          # let daemon threads notice
+
+    _servo_home()
+    time.sleep(0.05)
+    lgpio.tx_servo(h, SERVO_PIN, 0)
+    lgpio.gpiochip_close(h)
+
+    cam1.release()
+    cam2.release()
+
+    try:
+        root.after(0, root.destroy)
+    except Exception:
+        pass
+
+    time.sleep(0.3)           # let any in-flight Firestore upload finish
+
+
+def _do_shutdown():
+    print("\n[BUTTON] SHUTDOWN triggered — cleaning up ...")
+    push_device_status("SHUTTING DOWN")
+    _hardware_teardown()
+    print("[BUTTON] Issuing: sudo shutdown -h now")
+    subprocess.run(["sudo", "shutdown", "-h", "now"])
+
+
+def _do_reboot():
+    print("\n[BUTTON] REBOOT triggered — cleaning up ...")
+    push_device_status("REBOOTING")
+    _hardware_teardown()
+    print("[BUTTON] Issuing: sudo reboot")
+    subprocess.run(["sudo", "reboot"])
+
+
+def hardware_button_watcher():
+    """
+    Polls GPIO 5 (shutdown) and GPIO 6 (reboot).
+    Tracks how long each pin stays LOW.  When a pin has been held
+    LOW for >= BUTTON_HOLD_S the corresponding action fires once.
+
+    Progress (0–100 %) is written to _shared["btn_hold_pct"] so the
+    GUI can show a hold-progress bar in the status bar.
+    """
+    poll_s     = BUTTON_POLL_MS / 1000.0
+    action_map = {
+        SHUTDOWN_PIN: ("SHUTTING DOWN", _do_shutdown),
+        REBOOT_PIN:   ("REBOOTING",     _do_reboot),
+    }
+    fired = {SHUTDOWN_PIN: False, REBOOT_PIN: False}
+
+    while _running:
+        for pin, (label, action_fn) in action_map.items():
+            try:
+                level = lgpio.gpio_read(h, pin)
+            except Exception:
+                # GPIO handle already closed during teardown — exit quietly
+                return
+
+            if level == 0:                          # button pressed (active-LOW)
+                if _btn_hold_start[pin] is None:
+                    _btn_hold_start[pin] = time.time()
+                    print(f"[BTN] GPIO{pin} pressed — hold {BUTTON_HOLD_S}s to {label}")
+
+                held = time.time() - _btn_hold_start[pin]
+                pct  = min(100, int(held / BUTTON_HOLD_S * 100))
+                state_write(btn_hold_pct=pct,
+                            system_action=label if pct < 100 else "")
+
+                if held >= BUTTON_HOLD_S and not fired[pin]:
+                    fired[pin] = True
+                    state_write(system_action=label, btn_hold_pct=100)
+                    # Run in a plain (non-daemon) thread so teardown
+                    # completes even if the main thread is blocked in Tk.
+                    threading.Thread(target=action_fn, daemon=False).start()
+                    return          # watcher exits — system is going down
+
+            else:                                   # button released
+                if _btn_hold_start[pin] is not None:
+                    held = time.time() - _btn_hold_start[pin]
+                    print(f"[BTN] GPIO{pin} released after {held:.1f}s (no action)")
+                _btn_hold_start[pin] = None
+                fired[pin]           = False
+                # Clear progress only if this was the active pin
+                st = state_read()
+                if st.get("system_action") in (action_map[pin][0], ""):
+                    state_write(btn_hold_pct=0, system_action="")
+
+        time.sleep(poll_s)
 
 
 # =========================================
@@ -1269,6 +1381,9 @@ btn_cam2 = tk.Button(btn_row, text="MANUAL CAM 2",
                       command=on_manual_cam2, **MANUAL_BTN)
 btn_cam2.grid(row=1, column=1, padx=(30, 8))
 
+# =========================================
+# STATUS BAR  (pipeline info + hold progress)
+# =========================================
 sbar = tk.Frame(root, bg="#222222", pady=6)
 sbar.pack(fill="x", padx=10, pady=(4, 2))
 
@@ -1285,6 +1400,36 @@ id_lbl = tk.Label(sbar, text="ID: --",
                    font=("Courier", 9), bg="#222222", fg="#666666")
 id_lbl.pack(side="right", padx=12)
 
+# --- hold-progress bar (hidden when idle) ---
+_hold_bar_frame = tk.Frame(root, bg="#1a1a1a")
+_hold_bar_frame.pack(fill="x", padx=10, pady=(0, 2))
+
+_hold_action_lbl = tk.Label(
+    _hold_bar_frame, text="",
+    font=("Courier", 9, "bold"),
+    bg="#1a1a1a", fg="#ff9800",
+    width=20, anchor="w",
+)
+_hold_action_lbl.pack(side="left", padx=(4, 6))
+
+_hold_canvas = tk.Canvas(
+    _hold_bar_frame,
+    height=14, bg="#2a2a2a",
+    bd=0, highlightthickness=0,
+)
+_hold_canvas.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+_hold_hint_lbl = tk.Label(
+    _hold_bar_frame,
+    text=f"GPIO{SHUTDOWN_PIN}=shutdown  GPIO{REBOOT_PIN}=reboot  (hold {BUTTON_HOLD_S:.0f}s)",
+    font=("Courier", 8),
+    bg="#1a1a1a", fg="#444444",
+)
+_hold_hint_lbl.pack(side="right", padx=4)
+
+# =========================================
+# RESULTS TABLE
+# =========================================
 tbl_wrap = tk.Frame(root, bg="#1a1a1a")
 tbl_wrap.pack(padx=10, pady=(4, 10), fill="x")
 
@@ -1317,6 +1462,41 @@ sb.pack(side="right", fill="y")
 # GUI REFRESH  (~12 fps)
 # =========================================
 _seen_result_ids: set = set()
+_last_hold_pct: int   = -1     # track to avoid unnecessary canvas redraws
+
+
+def _redraw_hold_bar(pct: int, action: str):
+    """Draw the hold-progress bar; clear it when pct == 0."""
+    global _last_hold_pct
+    if pct == _last_hold_pct:
+        return
+    _last_hold_pct = pct
+
+    _hold_canvas.update_idletasks()
+    total_w = _hold_canvas.winfo_width()
+    if total_w < 2:
+        return
+
+    _hold_canvas.delete("all")
+
+    if pct <= 0 or not action:
+        _hold_action_lbl.config(text="")
+        return
+
+    fill_w = max(1, int(total_w * pct / 100))
+
+    # colour: orange while holding, red when about to fire
+    bar_col = "#ff5252" if pct >= 90 else "#ff9800"
+    _hold_canvas.create_rectangle(0, 0, fill_w, 14, fill=bar_col, outline="")
+    _hold_canvas.create_rectangle(fill_w, 0, total_w, 14,
+                                   fill="#2a2a2a", outline="")
+
+    label_txt = f"  {action} ({pct}%)"
+    _hold_canvas.create_text(
+        total_w // 2, 7, text=label_txt,
+        fill="#ffffff", font=("Courier", 8, "bold"), anchor="center",
+    )
+    _hold_action_lbl.config(text=action)
 
 
 def gui_refresh():
@@ -1381,6 +1561,10 @@ def gui_refresh():
 
     id_lbl.config(text=f"ID: {st['last_banana_id'] or '--'}")
 
+    # --- hold-progress bar ---
+    _redraw_hold_bar(st.get("btn_hold_pct", 0),
+                     st.get("system_action", ""))
+
     for r in st["results"]:
         if r["id"] not in _seen_result_ids:
             _seen_result_ids.add(r["id"])
@@ -1389,10 +1573,6 @@ def gui_refresh():
                 r["time"], r["id"], r["size"], r["size_ok"],
                 r["defect"], r["c1"], r["c2"], r["grade"],
             ), tags=(tag,))
-            # FIX 6: Clear only after confirmed new result using root.after,
-            # not a blanket 2-second timer that wipes grades from concurrent bananas.
-            # Capture the grades at insertion time via default args to avoid
-            # late-binding closure bug (all lambdas would share the final loop value).
             _bid = r["id"]
             root.after(2000, lambda bid=_bid: _clear_grade_if_stale(bid))
 
@@ -1400,7 +1580,6 @@ def gui_refresh():
 
 
 def _clear_grade_if_stale(banana_id: str):
-    """Only clear the grade display if no newer result has arrived."""
     st = state_read()
     if st.get("last_banana_id") == banana_id:
         state_write(last_grade1="", last_grade2="")
@@ -1412,9 +1591,10 @@ def _clear_grade_if_stale(banana_id: str):
 def start_background_threads():
     load_local_model()
 
-    threading.Thread(target=camera_loop,           daemon=True).start()
-    threading.Thread(target=visual_center_watcher, daemon=True).start()
-    threading.Thread(target=timeout_watcher,       daemon=True).start()
+    threading.Thread(target=camera_loop,            daemon=True).start()
+    threading.Thread(target=visual_center_watcher,  daemon=True).start()
+    threading.Thread(target=timeout_watcher,        daemon=True).start()
+    threading.Thread(target=hardware_button_watcher, daemon=True).start()
 
     push_device_status("ACTIVE")
     mode = "ML (local SVM)" if _ml_ready else "HSV fallback"
@@ -1424,14 +1604,17 @@ def start_background_threads():
     print(f"[System] Sorter servo=GPIO{SERVO_PIN}  "
           f"delay={SERVO_DELAY_S}s  hold={SERVO_HOLD_S}s")
     print(f"[System] Size rejection threshold={MIN_SIZE_CM}cm")
+    print(f"[System] HW buttons: "
+          f"GPIO{SHUTDOWN_PIN}=shutdown  GPIO{REBOOT_PIN}=reboot  "
+          f"(hold {BUTTON_HOLD_S}s)")
 
 
 def on_close():
     global _running
     _running = False
-    time.sleep(0.2)          # let daemon threads notice _running=False
+    time.sleep(0.2)
 
-    push_device_status("OFFLINE")   # synchronous — guaranteed to complete
+    push_device_status("OFFLINE")
 
     _servo_home()
     time.sleep(0.1)
@@ -1441,8 +1624,6 @@ def on_close():
     cam2.release()
     root.destroy()
 
-    # Give any non-daemon Firestore upload threads a moment to finish
-    # before the interpreter exits.
     time.sleep(0.3)
     print("[System] Shutdown complete.")
 
